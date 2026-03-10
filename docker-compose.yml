@@ -1,0 +1,101 @@
+version: '3.9'
+
+services:
+  app:
+    build:
+      context: .
+      target: production
+    container_name: api-rest-app
+    restart: unless-stopped
+    ports:
+      - '${PORT:-3000}:3000'
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3000
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_POOL_MIN=10
+      - DB_POOL_MAX=50
+      - REDIS_URL=redis://redis:6379
+      - JWT_PRIVATE_KEY=${JWT_PRIVATE_KEY}
+      - JWT_PUBLIC_KEY=${JWT_PUBLIC_KEY}
+      - JWT_ACCESS_EXPIRES_IN=${JWT_ACCESS_EXPIRES_IN:-15m}
+      - JWT_REFRESH_EXPIRES_IN=${JWT_REFRESH_EXPIRES_IN:-7d}
+      - COOKIE_SECRET=${COOKIE_SECRET}
+      - FCM_SERVICE_ACCOUNT_KEY=${FCM_SERVICE_ACCOUNT_KEY}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+    volumes:
+      - app-logs:/app/logs
+
+  worker:
+    build:
+      context: .
+      target: production
+    container_name: api-rest-worker
+    restart: unless-stopped
+    command: ['node', 'src/workers/fcmWorker.js']
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - REDIS_URL=redis://redis:6379
+      - FCM_SERVICE_ACCOUNT_KEY=${FCM_SERVICE_ACCOUNT_KEY}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+
+  mysql:
+    image: mysql:8.0
+    container_name: api-rest-mysql
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${DB_NAME}
+      - MYSQL_USER=${DB_USER}
+      - MYSQL_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    ports:
+      - '${DB_EXPOSE_PORT:-3306}:3306'
+    networks:
+      - backend
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-u', 'root', '-p${DB_ROOT_PASSWORD}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+  redis:
+    image: redis:7-alpine
+    container_name: api-rest-redis
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mysql-data:
+  redis-data:
+  app-logs:
+
+networks:
+  backend:
+    driver: bridge

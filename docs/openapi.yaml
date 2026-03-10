@@ -1,0 +1,500 @@
+openapi: 3.0.3
+info:
+  title: API REST Backend — Gestion de Projets et Tâches
+  description: |
+    API REST complète pour la gestion de projets et tâches.
+    - Authentification JWT (RS256 en production)
+    - Gestion des utilisateurs, projets et tâches
+    - Conformité OWASP Top 10 / RGPD
+  version: 1.0.0
+  contact:
+    name: Équipe Backend
+    email: backend@example.com
+
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Développement local
+  - url: https://staging.example.com/api/v1
+    description: Staging
+  - url: https://api.example.com/api/v1
+    description: Production
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+
+    PaginatedResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+        meta:
+          type: object
+          properties:
+            page: { type: integer, example: 1 }
+            limit: { type: integer, example: 20 }
+            total: { type: integer, example: 150 }
+            totalPages: { type: integer, example: 8 }
+            hasNext: { type: boolean }
+            hasPrev: { type: boolean }
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            code: { type: string, example: VALIDATION_ERROR }
+            message: { type: string }
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field: { type: string }
+                  message: { type: string }
+
+    User:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        email: { type: string, format: email, example: jean@example.com }
+        first_name: { type: string, example: Jean }
+        last_name: { type: string, example: Dupont }
+        role: { type: string, enum: [admin, manager, member] }
+        is_active: { type: boolean }
+        last_login_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    Project:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        name: { type: string, example: Projet Alpha }
+        description: { type: string, nullable: true }
+        status: { type: string, enum: [active, archived, completed] }
+        owner_id: { type: integer }
+        owner: { $ref: '#/components/schemas/User' }
+        deadline: { type: string, format: date, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    Task:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        title: { type: string, example: Implémenter l'auth }
+        description: { type: string, nullable: true }
+        status: { type: string, enum: [todo, in_progress, review, done] }
+        priority: { type: string, enum: [low, medium, high, critical] }
+        project_id: { type: integer }
+        assignee_id: { type: integer, nullable: true }
+        assignee: { $ref: '#/components/schemas/User' }
+        due_date: { type: string, format: date, nullable: true }
+        created_at: { type: string, format: date-time }
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      security: []
+      tags: [Système]
+      responses:
+        '200':
+          description: Serveur opérationnel
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                success: true
+                data:
+                  status: healthy
+                  timestamp: '2025-03-01T10:00:00Z'
+                  version: 1.0.0
+                  environment: production
+
+  /auth/register:
+    post:
+      summary: Créer un compte
+      security: []
+      tags: [Authentification]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, first_name, last_name]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8, description: Min 8 chars, 1 majuscule, 1 chiffre, 1 spécial }
+                first_name: { type: string }
+                last_name: { type: string }
+            example:
+              email: jean@example.com
+              password: Test@1234
+              first_name: Jean
+              last_name: Dupont
+      responses:
+        '201':
+          description: Compte créé
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessResponse' }
+        '409':
+          description: Email déjà utilisé
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '422':
+          description: Données invalides
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /auth/login:
+    post:
+      summary: Se connecter
+      security: []
+      tags: [Authentification]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+            example:
+              email: jean@example.com
+              password: Test@1234
+      responses:
+        '200':
+          description: Connexion réussie — refreshToken en cookie HttpOnly
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  accessToken: eyJhbGciOiJIUzI1NiJ9...
+                  user:
+                    id: 1
+                    email: jean@example.com
+                    role: member
+        '401':
+          description: Credentials invalides
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /auth/refresh:
+    post:
+      summary: Renouveler l'access token via cookie refreshToken
+      security: []
+      tags: [Authentification]
+      responses:
+        '200':
+          description: Nouveau accessToken émis — rotation du refreshToken
+        '401':
+          description: Refresh token invalide ou expiré
+
+  /auth/logout:
+    post:
+      summary: Se déconnecter
+      tags: [Authentification]
+      responses:
+        '204':
+          description: Déconnexion réussie
+
+  /users:
+    get:
+      summary: Liste des utilisateurs (admin uniquement)
+      tags: [Utilisateurs]
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 20, maximum: 100 }
+        - in: query
+          name: sort
+          schema: { type: string, default: created_at }
+        - in: query
+          name: order
+          schema: { type: string, enum: [ASC, DESC], default: DESC }
+      responses:
+        '200':
+          description: Liste paginée
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedResponse' }
+        '401': { description: Non authentifié }
+        '403': { description: Accès refusé }
+
+  /users/{id}:
+    get:
+      summary: Détail d'un utilisateur
+      tags: [Utilisateurs]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessResponse' }
+        '404': { description: Introuvable }
+    put:
+      summary: Modifier un utilisateur
+      tags: [Utilisateurs]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                first_name: { type: string }
+                last_name: { type: string }
+                email: { type: string, format: email }
+      responses:
+        '200': { description: Mis à jour }
+        '403': { description: Accès refusé }
+    delete:
+      summary: Supprimer un utilisateur (admin)
+      tags: [Utilisateurs]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        '204': { description: Supprimé }
+        '403': { description: Accès refusé }
+
+  /users/{id}/role:
+    patch:
+      summary: Changer le rôle d'un utilisateur (admin)
+      tags: [Utilisateurs]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { type: string, enum: [admin, manager, member] }
+      responses:
+        '200': { description: Rôle mis à jour }
+        '403': { description: Accès refusé }
+
+  /projects:
+    get:
+      summary: Liste des projets
+      tags: [Projets]
+      parameters:
+        - { in: query, name: page, schema: { type: integer } }
+        - { in: query, name: limit, schema: { type: integer } }
+        - { in: query, name: status, schema: { type: string, enum: [active, archived, completed] } }
+        - { in: query, name: owner_id, schema: { type: integer } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedResponse' }
+    post:
+      summary: Créer un projet (manager/admin)
+      tags: [Projets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                description: { type: string }
+                deadline: { type: string, format: date }
+      responses:
+        '201': { description: Projet créé }
+        '403': { description: Droits insuffisants }
+
+  /projects/{id}:
+    get:
+      summary: Détail d'un projet
+      tags: [Projets]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Projet trouvé }
+        '404': { description: Introuvable }
+    put:
+      summary: Modifier un projet
+      tags: [Projets]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Mis à jour }
+    delete:
+      summary: Supprimer un projet (admin)
+      tags: [Projets]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '204': { description: Supprimé }
+
+  /projects/{id}/archive:
+    patch:
+      summary: Archiver un projet
+      tags: [Projets]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Archivé }
+
+  /tasks:
+    get:
+      summary: Liste des tâches
+      tags: [Tâches]
+      parameters:
+        - { in: query, name: project_id, schema: { type: integer } }
+        - { in: query, name: status, schema: { type: string, enum: [todo, in_progress, review, done] } }
+        - { in: query, name: priority, schema: { type: string, enum: [low, medium, high, critical] } }
+        - { in: query, name: assignee_id, schema: { type: integer } }
+        - { in: query, name: page, schema: { type: integer } }
+        - { in: query, name: limit, schema: { type: integer } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedResponse' }
+    post:
+      summary: Créer une tâche
+      tags: [Tâches]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, project_id]
+              properties:
+                title: { type: string }
+                description: { type: string }
+                priority: { type: string, enum: [low, medium, high, critical] }
+                project_id: { type: integer }
+                assignee_id: { type: integer, nullable: true }
+                due_date: { type: string, format: date }
+      responses:
+        '201': { description: Tâche créée }
+
+  /tasks/{id}:
+    get:
+      summary: Détail d'une tâche
+      tags: [Tâches]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Tâche trouvée }
+    put:
+      summary: Modifier une tâche
+      tags: [Tâches]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Mis à jour }
+    delete:
+      summary: Supprimer une tâche
+      tags: [Tâches]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '204': { description: Supprimé }
+
+  /tasks/{id}/status:
+    patch:
+      summary: Changer le statut d'une tâche (transitions validées)
+      tags: [Tâches]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [todo, in_progress, review, done] }
+      responses:
+        '200': { description: Statut mis à jour }
+        '422': { description: Transition invalide }
+
+  /tasks/{id}/assign:
+    patch:
+      summary: Assigner une tâche
+      tags: [Tâches]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assignee_id]
+              properties:
+                assignee_id: { type: integer, nullable: true }
+      responses:
+        '200': { description: Tâche assignée — notification FCM déclenchée }
+
+tags:
+  - name: Système
+    description: Health check et statut
+  - name: Authentification
+    description: Register, Login, Refresh, Logout
+  - name: Utilisateurs
+    description: CRUD utilisateurs et gestion des rôles
+  - name: Projets
+    description: Gestion des projets
+  - name: Tâches
+    description: Gestion des tâches avec transitions de statut
